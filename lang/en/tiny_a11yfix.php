@@ -26,6 +26,7 @@
 $string['a11yfix:use'] = 'Use AI Accessibility Fixer';
 $string['accessibilityreport'] = 'Accessibility Report';
 $string['analyzing'] = 'Analyzing content for accessibility issues...';
+$string['analyzingmodal'] = 'Please wait while we analyze your content for accessibility issues. This may take a moment...';
 $string['applychanges'] = 'Apply Changes';
 $string['buttontitle'] = 'Fix Accessibility';
 $string['fixfailed'] = 'Failed to fix accessibility issues. Please try again.';
