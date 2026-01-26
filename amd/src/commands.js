@@ -75,6 +75,13 @@ const fixAccessibility = async(editor) => {
         show: true,
     });
 
+    // Make the modal extra-large.
+    const $root = await modal.getRoot();
+    const modalDialog = $root[0].querySelector('.modal-dialog');
+    if (modalDialog) {
+        modalDialog.classList.add('modal-xl');
+    }
+
     try {
         const contextId = getContextId(editor);
         const request = {
@@ -267,12 +274,6 @@ const buildModalBody = (response) => {
     html += '<div class="a11yfix-analysis mb-3">';
     html += '<h5>Analysis Report</h5>';
     html += '<div class="border p-3 bg-light">' + response.analysis_report + '</div>';
-    html += '</div>';
-    html += '<div class="a11yfix-preview">';
-    html += '<h5>Fixed Content Preview</h5>';
-    html += '<div class="border p-3" style="max-height: 300px; overflow-y: auto;">';
-    html += '<pre style="white-space: pre-wrap;">' + escapeHtml(response.fixed_content) + '</pre>';
-    html += '</div>';
     html += '</div>';
     html += '</div>';
     return html;

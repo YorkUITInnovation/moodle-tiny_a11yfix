@@ -31,5 +31,5 @@ $plugin->component = 'tiny_a11yfix';
 $plugin->maturity  = MATURITY_ALPHA;
 $plugin->release   = 'v0.1-alpha';
 $plugin->dependencies = array(
-    'aiplacement_a11y' => 2026012600,
+    'aiplacement_a11y' => 2026012500,
 );
