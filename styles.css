@@ -6,9 +6,9 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-/* SVG icon with no issues - Green */
+/* SVG icon with no issues - Darker Green for better accessibility (WCAG AA compliant: 4.52:1 contrast) */
 button.a11yfix-no-issues svg path {
-    fill: #28a745 !important;
+    fill: #218838 !important;
     transition: fill 0.3s ease;
 }
 
