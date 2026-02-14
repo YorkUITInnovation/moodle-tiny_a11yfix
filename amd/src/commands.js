@@ -24,6 +24,7 @@ import {
 } from './common';
 import {getContextId} from './options';
 
+
 /**
  * Tiny a11yfix commands.
  *
@@ -32,6 +33,12 @@ import {getContextId} from './options';
  * @license     http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  * @author      Patrick Thibaudeau
  */
+
+// Global state for tracking issues and fixes
+let currentIssues = [];
+let currentHtmlContent = '';
+let fixedIssues = new Set();
+let modalInstance = null;
 
 /**
  * Build the loading state HTML for the modal.
@@ -123,8 +130,14 @@ const fixAccessibility = async(editor) => {
  * @param {Object} response The response from the accessibility fix service.
  */
 const updateModalWithResults = async(modal, editor, response) => {
-    const applyText = await getString('applychanges', component);
+    const applyText = await getString('applychanges', 'aiplacement_a11y');
     const cancelText = await getString('cancel', 'core');
+
+    // Initialize global state
+    currentHtmlContent = response.original_content;
+    currentIssues = JSON.parse(response.issues_data || '[]');
+    fixedIssues = new Set();
+    modalInstance = modal;
 
     // Update modal body and footer.
     const $root = await modal.getRoot();
@@ -135,6 +148,12 @@ const updateModalWithResults = async(modal, editor, response) => {
     if (bodyElement) {
         bodyElement.innerHTML = buildModalBody(response);
     }
+
+    // Setup fix button listeners after content is loaded
+    // Use setTimeout to ensure DOM is fully updated
+    setTimeout(() => {
+        setupFixButtonListeners(editor, root);
+    }, 100);
 
     // Update footer - create it if it doesn't exist.
     let footerElement = root.querySelector('.modal-footer');
@@ -160,7 +179,8 @@ const updateModalWithResults = async(modal, editor, response) => {
 
         if (applyAction) {
             e.preventDefault();
-            editor.setContent(response.fixed_content);
+            // Apply the current HTML content (with any fixes that were applied)
+            editor.setContent(currentHtmlContent);
             editor.undoManager.add();
             modal.destroy();
         }
@@ -261,6 +281,230 @@ const updateModalWithError = async(modal, errorMessage) => {
 };
 
 /**
+ * Convert an image element to base64 data URI.
+ * Resizes to max 1024x1024 and compresses as JPEG to reduce payload size.
+ *
+ * @param {string} imgSrc The image source URL.
+ * @returns {Promise<string|null>} Base64 data URI or null if failed.
+ */
+const getImageAsBase64 = async(imgSrc) => {
+    return new Promise((resolve) => {
+        try {
+            // Create a new image element.
+            const img = new Image();
+            img.crossOrigin = 'anonymous'; // Try to handle CORS.
+
+            img.onload = () => {
+                try {
+                    // Calculate resize dimensions (max 1024x1024, maintain aspect ratio).
+                    const maxSize = 1024;
+                    let width = img.naturalWidth || img.width;
+                    let height = img.naturalHeight || img.height;
+
+                    if (width > maxSize || height > maxSize) {
+                        const ratio = Math.min(maxSize / width, maxSize / height);
+                        width = Math.floor(width * ratio);
+                        height = Math.floor(height * ratio);
+                    }
+
+                    // Create canvas with resized dimensions.
+                    const canvas = document.createElement('canvas');
+                    canvas.width = width;
+                    canvas.height = height;
+
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+
+                    // Convert to JPEG with 80% quality for smaller file size.
+                    const dataURL = canvas.toDataURL('image/jpeg', 0.8);
+                    resolve(dataURL);
+                } catch (err) {
+                    // eslint-disable-next-line no-console
+                    console.error('Error converting image to base64:', err);
+                    resolve(null);
+                }
+            };
+
+            img.onerror = () => {
+                // eslint-disable-next-line no-console
+                console.error('Error loading image:', imgSrc);
+                resolve(null);
+            };
+
+            img.src = imgSrc;
+        } catch (err) {
+            // eslint-disable-next-line no-console
+            console.error('Error in getImageAsBase64:', err);
+            resolve(null);
+        }
+    });
+};
+
+/**
+ * Fix a single accessibility issue.
+ *
+ * @param {Number} issueIndex The index of the issue to fix.
+ * @param {TinyMCE.Editor} editor The TinyMCE editor instance.
+ */
+const fixSingleIssue = async(issueIndex, editor) => {
+    const issue = currentIssues[issueIndex];
+    if (!issue) {
+        return;
+    }
+
+    // Mark issue as fixing
+    const issueElement = document.querySelector(`[data-issue-index="${issueIndex}"]`);
+    if (issueElement) {
+        issueElement.classList.add('fixing');
+        const btn = issueElement.querySelector('.fix-issue-btn');
+        if (btn) {
+            btn.disabled = true;
+            btn.querySelector('.btn-text').textContent = await getString('fixing', 'aiplacement_a11y');
+        }
+    }
+
+    try {
+        const contextId = getContextId(editor);
+
+        // Prepare request arguments.
+        const args = {
+            contextid: contextId,
+            htmlcontent: currentHtmlContent,
+            issuetype: issue.type,
+            issuedata: JSON.stringify(issue),
+            imagedata: '', // Default empty.
+        };
+
+        // For image issues, convert image to base64.
+        if (issue.type === 'missing_alt_text' && issue.src) {
+            const imageBase64 = await getImageAsBase64(issue.src);
+            if (imageBase64) {
+                args.imagedata = imageBase64;
+            }
+        }
+
+        const request = {
+            methodname: 'aiplacement_a11y_fix_single_issue',
+            args: args,
+        };
+
+        const response = await fetchMany([request])[0];
+
+        if (response.success) {
+            // Update current HTML content with the fix
+            currentHtmlContent = response.fixed_content;
+
+            // Mark issue as fixed
+            fixedIssues.add(issueIndex);
+
+            // Update the display
+            await updateHtmlDisplay();
+
+            // Update issue state
+            if (issueElement) {
+                issueElement.classList.remove('fixing');
+                issueElement.classList.add('fixed');
+                const btn = issueElement.querySelector('.fix-issue-btn');
+                if (btn) {
+                    btn.disabled = false;
+                    btn.querySelector('.btn-text').textContent = await getString('issuesfixed', 'aiplacement_a11y');
+                }
+            }
+        } else {
+            throw new Error('Fix failed');
+        }
+    } catch (error) {
+        // Show error
+        if (issueElement) {
+            issueElement.classList.remove('fixing');
+            const btn = issueElement.querySelector('.fix-issue-btn');
+            if (btn) {
+                btn.disabled = false;
+                btn.querySelector('.btn-text').textContent = await getString('fixissue', 'aiplacement_a11y');
+            }
+        }
+        notificationAlert(
+            await getString('pluginname', component),
+            'Error fixing issue: ' + error.message
+        );
+    }
+};
+
+/**
+ * Fix all accessibility issues.
+ *
+ * @param {TinyMCE.Editor} editor The TinyMCE editor instance.
+ */
+const fixAllIssues = async(editor) => {
+    // Disable all fix buttons
+    document.querySelectorAll('.fix-issue-btn').forEach(btn => btn.disabled = true);
+    const fixAllBtn = document.querySelector('.fix-all-btn');
+    if (fixAllBtn) {
+        fixAllBtn.disabled = true;
+        fixAllBtn.textContent = await getString('fixing', 'aiplacement_a11y');
+    }
+
+    // Fix each issue sequentially
+    for (let i = 0; i < currentIssues.length; i++) {
+        if (!fixedIssues.has(i)) {
+            await fixSingleIssue(i, editor);
+        }
+    }
+
+    // Re-enable fix all button
+    if (fixAllBtn) {
+        fixAllBtn.disabled = false;
+        fixAllBtn.textContent = await getString('fixall', 'aiplacement_a11y');
+    }
+};
+
+/**
+ * Update the HTML display with current content.
+ */
+const updateHtmlDisplay = async() => {
+    // Update HTML tab
+    const htmlPreview = document.querySelector('#view-html .rendered-html-preview');
+    if (htmlPreview) {
+        htmlPreview.innerHTML = currentHtmlContent;
+    }
+
+    // Update Code tab
+    const codePreview = document.querySelector('#view-code pre');
+    if (codePreview) {
+        codePreview.textContent = currentHtmlContent;
+    }
+};
+
+/**
+ * Setup event listeners for fix buttons.
+ *
+ * @param {TinyMCE.Editor} editor The TinyMCE editor instance.
+ * @param {HTMLElement} root The modal root element to search within.
+ */
+const setupFixButtonListeners = (editor, root) => {
+    // If no root provided, use document (fallback)
+    const container = root || document;
+
+    // Individual fix buttons
+    container.querySelectorAll('.fix-issue-btn').forEach(btn => {
+        btn.addEventListener('click', async(e) => {
+            e.preventDefault();
+            const issueIndex = parseInt(btn.getAttribute('data-issue-index'));
+            await fixSingleIssue(issueIndex, editor);
+        });
+    });
+
+    // Fix all button
+    const fixAllBtn = container.querySelector('.fix-all-btn');
+    if (fixAllBtn) {
+        fixAllBtn.addEventListener('click', async(e) => {
+            e.preventDefault();
+            await fixAllIssues(editor);
+        });
+    }
+};
+
+/**
  * Build the modal body HTML.
  *
  * @param {Object} response The response from the accessibility fix service.
@@ -268,6 +512,7 @@ const updateModalWithError = async(modal, errorMessage) => {
  */
 const buildModalBody = (response) => {
     let html = '<div class="a11yfix-report">';
+
     html += '<div class="alert alert-info">';
     html += '<strong>Issues found:</strong> ' + response.issues_found;
     html += '</div>';
