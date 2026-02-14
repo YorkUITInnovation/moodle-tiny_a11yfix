@@ -1,0 +1,20 @@
+/**
+ * Accessibility Fix Button Status Colors
+ *
+ * @package    tiny_a11yfix
+ * @copyright  2026 Patrick Thibaudeau, York University
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
+
+/* SVG icon with no issues - Green */
+button.a11yfix-no-issues svg path {
+    fill: #28a745 !important;
+    transition: fill 0.3s ease;
+}
+
+/* SVG icon with issues - Red */
+button.a11yfix-has-issues svg path {
+    fill: #dc3545 !important;
+    transition: fill 0.3s ease;
+}
+

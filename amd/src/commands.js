@@ -39,6 +39,10 @@ let currentIssues = [];
 let currentHtmlContent = '';
 let fixedIssues = new Set();
 let modalInstance = null;
+let debounceTimer = null;
+let debounceDelay = 2000;
+let currentButton = null;
+let lastCheckedContent = '';
 
 /**
  * Build the loading state HTML for the modal.
@@ -54,6 +58,155 @@ const buildLoadingBody = async() => {
     html += '<p class="lead">' + loadingMessage + '</p>';
     html += '</div>';
     return html;
+};
+
+/**
+ * Check accessibility and update button status.
+ *
+ * @param {TinyMCE.Editor} editor The TinyMCE editor instance.
+ */
+const checkAccessibilityStatus = async(editor) => {
+    const htmlContent = editor.getContent();
+
+    // Skip if content is empty or hasn't changed.
+    if (!htmlContent.trim() || htmlContent === lastCheckedContent) {
+        return;
+    }
+
+    lastCheckedContent = htmlContent;
+
+    try {
+        const contextId = getContextId(editor);
+        const request = {
+            methodname: 'aiplacement_a11y_analyze_only',
+            args: {
+                contextid: contextId,
+                htmlcontent: htmlContent,
+            }
+        };
+
+        const response = await fetchMany([request])[0];
+
+        if (response.success) {
+            updateButtonStatus(editor, response.has_issues, response.issues_count);
+        }
+    } catch (err) {
+        // Silently fail - don't disrupt editing.
+        // eslint-disable-next-line no-console
+        console.error('Auto-check failed:', err);
+    }
+};
+
+/**
+ * Update button appearance based on accessibility status.
+ *
+ * @param {TinyMCE.Editor} editor The TinyMCE editor instance.
+ * @param {Boolean} hasIssues Whether issues were found.
+ * @param {Number} issuesCount Number of issues.
+ */
+const updateButtonStatus = async(editor, hasIssues, issuesCount) => {
+    // Get the editor's textarea element ID
+    const editorId = editor.id;
+
+    // Find the editor container first
+    const editorContainer = editor.getContainer();
+
+    if (!editorContainer) {
+        // eslint-disable-next-line no-console
+        console.error('Editor container not found for editor:', editorId);
+        return;
+    }
+
+    // Find the button element within this editor's container
+    const buttonElement = editorContainer.querySelector('button[data-mce-name="a11yfix_button"]');
+
+    // eslint-disable-next-line no-console
+    console.log('updateButtonStatus called:', {editorId, hasIssues, issuesCount, buttonElement});
+
+    if (!buttonElement) {
+        // eslint-disable-next-line no-console
+        console.error('Button not found for editor:', editorId);
+        return;
+    }
+
+    // Find the SVG path element.
+    const svgPath = buttonElement.querySelector('svg path');
+
+    if (!svgPath) {
+        // eslint-disable-next-line no-console
+        console.error('SVG path not found!');
+        return;
+    }
+
+    // Update SVG path fill color directly via inline style.
+    if (hasIssues) {
+        svgPath.style.fill = '#dc3545'; // Red
+        buttonElement.classList.add('a11yfix-has-issues');
+        buttonElement.classList.remove('a11yfix-no-issues');
+
+        // eslint-disable-next-line no-console
+        console.log('Set RED color. SVG path fill:', svgPath.style.fill);
+
+        // Update tooltip.
+        const tooltip = await getString('accessibilityissues', 'aiplacement_a11y', issuesCount);
+        buttonElement.setAttribute('title', tooltip);
+        buttonElement.setAttribute('aria-label', tooltip);
+    } else {
+        svgPath.style.fill = '#28a745'; // Green
+        buttonElement.classList.add('a11yfix-no-issues');
+        buttonElement.classList.remove('a11yfix-has-issues');
+
+        // eslint-disable-next-line no-console
+        console.log('Set GREEN color. SVG path fill:', svgPath.style.fill);
+
+        // Update tooltip.
+        const tooltip = await getString('accessibilityok', 'aiplacement_a11y');
+        buttonElement.setAttribute('title', tooltip);
+        buttonElement.setAttribute('aria-label', tooltip);
+    }
+};
+
+/**
+ * Setup auto-check with debounce.
+ *
+ * @param {TinyMCE.Editor} editor The TinyMCE editor instance.
+ */
+const setupAutoCheck = async(editor) => {
+    // Get settings from server.
+    try {
+        const settings = await fetchMany([{
+            methodname: 'aiplacement_a11y_get_settings',
+            args: {}
+        }])[0];
+
+        debounceDelay = settings.autocheck_debounce || 2000;
+    } catch (err) {
+        // Use default if settings fetch fails.
+        debounceDelay = 2000;
+    }
+
+    // If delay is 0, auto-check is disabled.
+    if (debounceDelay === 0) {
+        return;
+    }
+
+    // Initial check on load.
+    setTimeout(() => {
+        checkAccessibilityStatus(editor);
+    }, 500);
+
+    // Listen for content changes.
+    editor.on('change keyup paste', () => {
+        // Clear existing timer.
+        if (debounceTimer) {
+            clearTimeout(debounceTimer);
+        }
+
+        // Set new timer.
+        debounceTimer = setTimeout(() => {
+            checkAccessibilityStatus(editor);
+        }, debounceDelay);
+    });
 };
 
 /**
@@ -732,6 +885,11 @@ export const getSetup = async() => {
             icon,
             text: buttonText,
             onAction: () => fixAccessibility(editor),
+        });
+
+        // Setup auto-check after editor is fully initialized.
+        editor.on('init', () => {
+            setupAutoCheck(editor);
         });
     };
 };
