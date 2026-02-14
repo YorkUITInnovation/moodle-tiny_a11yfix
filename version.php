@@ -25,7 +25,7 @@
 
 defined('MOODLE_INTERNAL') || die();
 
-$plugin->version   = 2026021408;
+$plugin->version   = 2026021409;
 $plugin->requires  = 2025092600;
 $plugin->component = 'tiny_a11yfix';
 $plugin->maturity  = MATURITY_ALPHA;

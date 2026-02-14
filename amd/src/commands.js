@@ -341,6 +341,110 @@ const getImageAsBase64 = async(imgSrc) => {
 };
 
 /**
+ * Get AI suggestion for fixing an issue.
+ *
+ * @param {Number} issueIndex The index of the issue.
+ * @param {TinyMCE.Editor} editor The TinyMCE editor instance.
+ */
+const getSuggestedFix = async(issueIndex, editor) => {
+    const issue = currentIssues[issueIndex];
+    if (!issue) {
+        return;
+    }
+
+    // Find the suggestion panel for this issue.
+    const suggestionPanel = document.querySelector(`.suggestion-panel[data-issue-index="${issueIndex}"]`);
+    if (!suggestionPanel) {
+        return;
+    }
+
+    // If already visible, just toggle it.
+    if (suggestionPanel.style.display !== 'none') {
+        suggestionPanel.style.display = 'none';
+        return;
+    }
+
+    // Show loading state in button.
+    const issueElement = document.querySelector(`[data-issue-index="${issueIndex}"]`);
+    const btn = issueElement?.querySelector('.suggest-fix-btn');
+    if (btn) {
+        btn.disabled = true;
+        btn.querySelector('.btn-text').textContent = await getString('gettingsuggestion', 'aiplacement_a11y');
+    }
+
+    try {
+        const contextId = getContextId(editor);
+
+        // Prepare request arguments.
+        const args = {
+            contextid: contextId,
+            htmlcontent: currentHtmlContent,
+            issuetype: issue.type,
+            issuedata: JSON.stringify(issue),
+            imagedata: '',
+        };
+
+        // For image issues, convert image to base64.
+        if (issue.type === 'missing_alt_text' && issue.src) {
+            const imageBase64 = await getImageAsBase64(issue.src);
+            if (imageBase64) {
+                args.imagedata = imageBase64;
+            }
+        }
+
+        const request = {
+            methodname: 'aiplacement_a11y_get_suggestion',
+            args: args,
+        };
+
+        const response = await fetchMany([request])[0];
+
+        if (response.success) {
+            // Store suggestion in issue for later use.
+            currentIssues[issueIndex].suggestion = {
+                reasoning: response.reasoning,
+                suggested_html: response.suggested_html,
+            };
+
+            // Display the suggestion panel.
+            const reasoningContent = suggestionPanel.querySelector('.reasoning-content');
+            const suggestedHtmlTextarea = suggestionPanel.querySelector('.suggested-html');
+
+            if (reasoningContent) {
+                reasoningContent.textContent = response.reasoning;
+            }
+
+            if (suggestedHtmlTextarea) {
+                suggestedHtmlTextarea.value = response.suggested_html;
+            }
+
+            // Show the panel (expanded by default).
+            suggestionPanel.style.display = 'block';
+
+            // Reset button.
+            if (btn) {
+                btn.disabled = false;
+                btn.querySelector('.btn-text').textContent = await getString('suggestedfix', 'aiplacement_a11y');
+            }
+        } else {
+            throw new Error('Failed to get suggestion');
+        }
+
+    } catch (err) {
+        // Reset button on error.
+        if (btn) {
+            btn.disabled = false;
+            btn.querySelector('.btn-text').textContent = await getString('suggestedfix', 'aiplacement_a11y');
+        }
+
+        notificationAlert(
+            await getString('pluginname', component),
+            'Error getting suggestion: ' + err.message
+        );
+    }
+};
+
+/**
  * Fix a single accessibility issue.
  *
  * @param {Number} issueIndex The index of the issue to fix.
@@ -352,6 +456,58 @@ const fixSingleIssue = async(issueIndex, editor) => {
         return;
     }
 
+    // Check if there's a suggested fix in the textarea.
+    const suggestionPanel = document.querySelector(`.suggestion-panel[data-issue-index="${issueIndex}"]`);
+    const suggestedHtmlTextarea = suggestionPanel?.querySelector('.suggested-html');
+    const suggestedHtml = suggestedHtmlTextarea?.value?.trim();
+
+    // If we have a suggested fix, use it directly without AI call.
+    if (suggestedHtml) {
+        // Apply the suggested HTML from textarea.
+        const dom = new DOMParser().parseFromString(currentHtmlContent, 'text/html');
+
+        // Find and replace the problematic element.
+        // For images, find by src.
+        if (issue.type === 'missing_alt_text' && issue.src) {
+            const img = dom.querySelector(`img[src="${issue.src}"]`);
+            if (img) {
+                img.setAttribute('alt', suggestedHtml);
+                currentHtmlContent = dom.body.innerHTML;
+                fixedIssues.add(issueIndex);
+                await updateHtmlDisplay();
+
+                // Mark as fixed.
+                const issueElement = document.querySelector(`[data-issue-index="${issueIndex}"]`);
+                if (issueElement) {
+                    issueElement.classList.add('fixed');
+                    const btn = issueElement.querySelector('.fix-issue-btn');
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.querySelector('.btn-text').textContent = await getString('issuesfixed', 'aiplacement_a11y');
+                    }
+                }
+                return;
+            }
+        }
+        // For other issue types, replace the entire HTML snippet.
+        // This is a simplified approach - you may need more sophisticated logic.
+        currentHtmlContent = currentHtmlContent.replace(issue.html_snippet || '', suggestedHtml);
+        fixedIssues.add(issueIndex);
+        await updateHtmlDisplay();
+
+        const issueElement = document.querySelector(`[data-issue-index="${issueIndex}"]`);
+        if (issueElement) {
+            issueElement.classList.add('fixed');
+            const btn = issueElement.querySelector('.fix-issue-btn');
+            if (btn) {
+                btn.disabled = false;
+                btn.querySelector('.btn-text').textContent = await getString('issuesfixed', 'aiplacement_a11y');
+            }
+        }
+        return;
+    }
+
+    // No suggested fix in textarea - proceed with normal AI fix.
     // Mark issue as fixing
     const issueElement = document.querySelector(`[data-issue-index="${issueIndex}"]`);
     if (issueElement) {
@@ -485,12 +641,32 @@ const setupFixButtonListeners = (editor, root) => {
     // If no root provided, use document (fallback)
     const container = root || document;
 
+    // Suggested Fix buttons
+    container.querySelectorAll('.suggest-fix-btn').forEach(btn => {
+        btn.addEventListener('click', async(e) => {
+            e.preventDefault();
+            const issueIndex = parseInt(btn.getAttribute('data-issue-index'));
+            await getSuggestedFix(issueIndex, editor);
+        });
+    });
+
     // Individual fix buttons
     container.querySelectorAll('.fix-issue-btn').forEach(btn => {
         btn.addEventListener('click', async(e) => {
             e.preventDefault();
             const issueIndex = parseInt(btn.getAttribute('data-issue-index'));
             await fixSingleIssue(issueIndex, editor);
+        });
+    });
+
+    // Collapse suggestion buttons
+    container.querySelectorAll('.collapse-suggestion-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            const suggestionPanel = btn.closest('.suggestion-panel');
+            if (suggestionPanel) {
+                suggestionPanel.style.display = 'none';
+            }
         });
     });
 
