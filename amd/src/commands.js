@@ -785,6 +785,128 @@ const updateHtmlDisplay = async() => {
 };
 
 /**
+ * Highlight the element in the preview that corresponds to the accessibility issue.
+ *
+ * @param {Number} issueIndex The index of the issue.
+ * @param {String} issueType The type of accessibility issue.
+ * @param {Object} issue The issue data object.
+ */
+const showWhereHighlight = (issueIndex, issueType, issue) => {
+    if (!issue) {
+        return;
+    }
+
+    // Get the preview container
+    const htmlPreview = document.querySelector('#view-html .rendered-html-preview');
+    if (!htmlPreview) {
+        return;
+    }
+
+    // Clear any previous highlights
+    htmlPreview.querySelectorAll('.a11y-highlighted-element').forEach(el => {
+        el.classList.remove('a11y-highlighted-element');
+    });
+
+    let elementToHighlight = null;
+
+    // Find the element based on issue type
+    switch (issueType) {
+        case 'missing_alt_text':
+            // Find image by src attribute
+            if (issue.src) {
+                elementToHighlight = htmlPreview.querySelector(`img[src="${issue.src}"]`);
+            }
+            break;
+
+        case 'weak_link_text':
+            // Find link by href attribute
+            if (issue.href) {
+                elementToHighlight = htmlPreview.querySelector(`a[href="${issue.href}"]`);
+            }
+            break;
+
+        case 'contrast_issue':
+            // Find element by tag name and try to match content
+            const tagName = issue.element || 'span';
+            const elements = htmlPreview.querySelectorAll(tagName);
+
+            // If this is a duplicate element issue, use the occurrence index
+            if (issue.element_occurrence && issue.element_occurrence > 0) {
+                // element_occurrence is 1-indexed, so subtract 1 for array access
+                const occurrenceIndex = issue.element_occurrence - 1;
+                if (occurrenceIndex < elements.length) {
+                    // Filter to only elements with contrast issues (matching color/background)
+                    let occurrenceCount = 0;
+                    for (let el of elements) {
+                        const style = el.getAttribute('style') || '';
+                        // Check if this element has the colors we're looking for
+                        if (style.includes(issue.color) || style.includes(issue.background)) {
+                            if (occurrenceCount === occurrenceIndex) {
+                                elementToHighlight = el;
+                                break;
+                            }
+                            occurrenceCount++;
+                        }
+                    }
+                }
+            } else {
+                // No occurrence index provided, try to find by style matching
+                for (let el of elements) {
+                    const style = el.getAttribute('style') || '';
+                    if (style.includes(issue.color) || style.includes(issue.background)) {
+                        elementToHighlight = el;
+                        break;
+                    }
+                }
+                // Fallback: highlight first element of this type
+                if (!elementToHighlight && elements.length > 0) {
+                    elementToHighlight = elements[0];
+                }
+            }
+            break;
+
+        case 'missing_form_label':
+            // Find input by id
+            if (issue.id) {
+                elementToHighlight = htmlPreview.querySelector(`input#${issue.id}`);
+            }
+            break;
+
+        case 'table_missing_caption':
+        case 'table_merged_cells':
+        case 'table_missing_headers':
+            // Find table - if multiple tables, highlight first
+            elementToHighlight = htmlPreview.querySelector('table');
+            break;
+
+        default:
+            // Try to find element by the HTML snippet if available
+            if (issue.html_snippet) {
+                // Create a temporary element to extract tag info
+                const temp = document.createElement('div');
+                temp.innerHTML = issue.html_snippet;
+                const firstChild = temp.firstChild;
+                if (firstChild) {
+                    const tagNameFromSnippet = firstChild.tagName?.toLowerCase();
+                    if (tagNameFromSnippet) {
+                        elementToHighlight = htmlPreview.querySelector(tagNameFromSnippet);
+                    }
+                }
+            }
+            break;
+    }
+
+    // Apply highlight to found element
+    if (elementToHighlight) {
+        elementToHighlight.classList.add('a11y-highlighted-element');
+
+        // Scroll element into view
+        elementToHighlight.scrollIntoView({behavior: 'smooth', block: 'center'});
+    }
+};
+
+
+/**
  * Setup event listeners for fix buttons.
  *
  * @param {TinyMCE.Editor} editor The TinyMCE editor instance.
@@ -809,6 +931,17 @@ const setupFixButtonListeners = (editor, root) => {
             e.preventDefault();
             const issueIndex = parseInt(btn.getAttribute('data-issue-index'));
             await fixSingleIssue(issueIndex, editor);
+        });
+    });
+
+    // Show me where buttons
+    container.querySelectorAll('.show-where-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            const issueIndex = parseInt(btn.getAttribute('data-issue-index'));
+            const issueType = btn.getAttribute('data-issue-type');
+            const issue = currentIssues[issueIndex];
+            showWhereHighlight(issueIndex, issueType, issue);
         });
     });
 
@@ -840,16 +973,8 @@ const setupFixButtonListeners = (editor, root) => {
  * @returns {string} The HTML content for the modal body.
  */
 const buildModalBody = (response) => {
-    let html = '<div class="a11yfix-report">';
+    let html= response.analysis_report;
 
-    html += '<div class="alert alert-info">';
-    html += '<strong>Issues found:</strong> ' + response.issues_found;
-    html += '</div>';
-    html += '<div class="a11yfix-analysis mb-3">';
-    html += '<h5>Analysis Report</h5>';
-    html += '<div class="border p-3 bg-light">' + response.analysis_report + '</div>';
-    html += '</div>';
-    html += '</div>';
     return html;
 };
 
