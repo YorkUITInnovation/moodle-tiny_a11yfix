@@ -25,11 +25,11 @@
 
 defined('MOODLE_INTERNAL') || die();
 
-$plugin->version   = 2026021413;
+$plugin->version   = 2026021500;
 $plugin->requires  = 2025092600;
 $plugin->component = 'tiny_a11yfix';
-$plugin->maturity  = MATURITY_ALPHA;
-$plugin->release   = 'v0.2-alpha';
+$plugin->maturity  = MATURITY_BETA;
+$plugin->release   = '0.8.0';
 $plugin->dependencies = array(
     'aiplacement_a11y' => 2026021401,
 );
