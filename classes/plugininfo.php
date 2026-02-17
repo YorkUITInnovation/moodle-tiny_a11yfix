@@ -17,6 +17,8 @@
 namespace tiny_a11yfix;
 
 use context;
+use context_course;
+use editor_tiny\editor;
 use editor_tiny\plugin;
 use editor_tiny\plugin_with_buttons;
 use editor_tiny\plugin_with_menuitems;
@@ -31,6 +33,34 @@ use editor_tiny\plugin_with_configuration;
  * @author     Patrick Thibaudeau
  */
 class plugininfo extends plugin implements plugin_with_configuration, plugin_with_buttons, plugin_with_menuitems {
+
+    #[\Override]
+    public static function is_enabled(
+        context $context,
+        array $options,
+        array $fpoptions,
+        ?editor $editor = null
+    ): bool {
+        // Check if AI tools are enabled for this context.
+        // Get the course context from the current context.
+        $coursecontext = $context->get_course_context(false);
+
+        if (!$coursecontext) {
+            // If we can't determine the course context, default to enabled.
+            return true;
+        }
+
+        // Get the course to check the enableaitools setting.
+        $course = get_course($coursecontext->instanceid);
+
+        // Check if the enableaitools setting exists and is enabled.
+        if (isset($course->enableaitools)) {
+            return (bool)$course->enableaitools;
+        }
+
+        // Default to enabled if the setting doesn't exist.
+        return true;
+    }
 
     public static function get_available_buttons(): array {
         return [
