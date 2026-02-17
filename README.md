@@ -51,9 +51,46 @@ The plugin can detect and help fix the following accessibility issues:
 
 ## Requirements
 
-- Moodle 4.5 or later (version 2025092600+)
+- Moodle 5.1 or later (version 2025092600+)
 - TinyMCE editor (Moodle's default editor)
 - **aiplacement_a11y** plugin (version 2026021401 or later) - **Required dependency**
+
+## Course-Level Control (Moodle 5.1+)
+
+Starting with Moodle 5.1, this plugin respects the **Enable AI Tools** course setting, giving instructors granular control over AI-powered features.
+
+### How It Works
+
+The plugin visibility is controlled by the `enableaitools` course setting:
+
+- **When `enableaitools` is enabled (true)**: 
+  - The accessibility fixer button appears in the TinyMCE toolbar
+  - The menu item is available in the Tools menu
+  - All AI-powered accessibility features are fully functional
+
+- **When `enableaitools` is disabled (false)**:
+  - The plugin is completely hidden from the editor
+  - No button or menu item is displayed
+  - The plugin does not load or consume resources
+
+### Configuring the Setting
+
+Course administrators can control this setting per course:
+
+1. Navigate to **Course administration > Edit settings**
+2. Locate the **Enable AI Tools** setting
+3. Check or uncheck the box to enable/disable AI tools for the course
+4. Save the changes
+
+This allows institutions to:
+- Control AI tool usage at the course level
+- Disable AI features in courses where they may not be appropriate
+- Comply with institutional policies regarding AI usage
+- Reduce cognitive load for instructors who prefer not to use AI features
+
+### Default Behavior
+
+If the `enableaitools` setting is not present or cannot be determined (e.g., in non-course contexts), the plugin defaults to **enabled** for backward compatibility.
 
 ## Installation
 
@@ -182,7 +219,7 @@ You should have received a copy of the GNU General Public License along with Moo
 | **Current Version** | v0.2-alpha |
 | **Plugin Version** | 2026021413 |
 | **Maturity** | Alpha |
-| **Requires Moodle** | 4.5+ (2025092600) |
+| **Requires Moodle** | 5.1+ (2025092600) |
 | **Requires aiplacement_a11y** | 2026021401+ |
 
 ## Support
@@ -192,6 +229,9 @@ For bug reports, feature requests, or questions, please contact the plugin maint
 ## Changelog
 
 ### v0.2-alpha (February 2026)
+- Added support for Moodle 5.1 `enableaitools` course setting
+- Plugin now respects course-level AI tools control
+- Plugin is hidden when AI tools are disabled at the course level
 - Added auto-check functionality with configurable debounce
 - Added visual status indicators (green/red button colors)
 - Added "Show Me Where" feature for issue highlighting
